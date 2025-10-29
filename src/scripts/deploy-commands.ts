@@ -30,7 +30,11 @@ const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {
   console.log('▶️  Deploy por guild…', { clientId, guildIds });
-  try { await rest.put(Routes.applicationCommands(clientId), { body: [] }); console.log('🧹 Globais limpos.'); } catch {}
+  try {
+    await rest.put(Routes.applicationCommands(clientId), { body: [] });
+    console.log('🧹 Globais limpos.');
+  } catch {}
+
   for (const gid of guildIds) {
     try {
       const res = await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: commands });
