@@ -4,13 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "npx tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "deploy": "tsx scripts/deploy-commands.ts",
-    "list": "tsx scripts/list-commands.ts",
-    "clear-global": "tsx scripts/clear-global.ts",
-    "env": "tsx scripts/print-env.ts",
-    "build": "tsc",
-    "start": "tsx src/index.ts"
+    "build": "tsc"
   },
   "dependencies": {
     "discord.js": "^14.15.3",
