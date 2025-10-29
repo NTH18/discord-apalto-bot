@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-     "deploy": "tsx scripts/deploy-commands.ts",
+    "deploy": "tsx scripts/deploy-commands.ts",
     "list": "tsx scripts/list-commands.ts",
     "clear-global": "tsx scripts/clear-global.ts",
     "env": "tsx scripts/print-env.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "build": "tsc",
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "discord.js": "^14.15.3",
