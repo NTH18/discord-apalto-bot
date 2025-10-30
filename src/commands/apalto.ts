@@ -8,7 +8,7 @@ import {
   ChatInputCommandInteraction,
   PermissionFlagsBits,
   SlashCommandBuilder,
-  OverwriteResolvable, // 👈 ADICIONE ESTA LINHA
+  OverwriteResolvable,
 } from 'discord.js';
 
 import { ok, err } from '../utils/embeds.ts';
@@ -75,43 +75,43 @@ async function execute(interaction: ChatInputCommandInteraction) {
   const staffRoleIds = getStaffRoleIds();
   const guestRoleId = process.env.CALL_GUEST_ROLE_ID?.trim() ?? null;
 
-const overwrites = [
-  {
-    id: interaction.guild!.roles.everyone.id, // <-- .id (string)
-    deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
-  },
-  {
-    id: interaction.user.id, // <-- string
-    allow: [
-      PermissionFlagsBits.Connect,
-      PermissionFlagsBits.ViewChannel,
-      PermissionFlagsBits.Speak,
-      PermissionFlagsBits.ManageChannels,
-    ],
-  },
-  // Cargos STAFF com permissão total
-  ...getStaffRoleIds().map(id => ({
-    id: id, // já string
-    allow: [
-      PermissionFlagsBits.Connect,
-      PermissionFlagsBits.ViewChannel,
-      PermissionFlagsBits.Speak,
-      PermissionFlagsBits.ManageChannels,
-    ],
-  })),
-  // Cargo convidado (apenas entrar)
-  ...(guestRoleId
-    ? [
-        {
-          id: guestRoleId,
-          allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
-        },
-      ]
-    : []),
-] satisfies OverwriteResolvable[];
+  const overwrites: OverwriteResolvable[] = [
+    {
+      id: interaction.guild!.roles.everyone.id,
+      deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
+    },
+    {
+      id: interaction.user.id,
+      allow: [
+        PermissionFlagsBits.Connect,
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.Speak,
+        PermissionFlagsBits.ManageChannels,
+      ],
+    },
+    // Cargos STAFF com permissão total
+    ...staffRoleIds.map((id: string) => ({
+      id,
+      allow: [
+        PermissionFlagsBits.Connect,
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.Speak,
+        PermissionFlagsBits.ManageChannels,
+      ],
+    })),
+    // Cargo convidado (apenas entrar)
+    ...(guestRoleId
+      ? [
+          {
+            id: guestRoleId,
+            allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
+          },
+        ]
+      : []),
+  ];
 
   const { team1, team2 } = await createApAltoPair({
-    client: interaction.client,                                                             
+    client: interaction.client,
     guildId: interaction.guildId!,
     categoryId: category.id,
     creatorId: interaction.user.id,
@@ -138,7 +138,9 @@ const overwrites = [
       'Calls criadas',
       `Defina os **líderes** (um pra cada time).\n• ${team1}\n• ${team2}\n\n` +
       `Líderes e cargos staff têm **gerenciamento total**.\n` +
-      `O cargo <@&${guestRoleId}> pode **apenas entrar** nas calls.\n` +
+      (guestRoleId
+        ? `O cargo <@&${guestRoleId}> pode **apenas entrar** nas calls.\n`
+        : '') +
       `As calls são apagadas se ficarem vazias por ${CONFIG.emptyMinutesToDelete} min.`
     )],
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(leader1Btn, leader2Btn, applyBtn)],

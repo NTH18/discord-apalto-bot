@@ -1,25 +1,33 @@
-// Carrega .env e expõe a configuração tipada
-
 import 'dotenv/config';
 
-function splitIds(v?: string): string[] {
-  return (v ?? '').split(',').map(s => s.trim()).filter(Boolean);
-}
-
 export const CONFIG = {
-  token: process.env.DISCORD_TOKEN ?? '',
-  clientId: process.env.CLIENT_ID ?? '',
-  guildIds: splitIds(process.env.GUILD_IDS),
-  // categoria principal desejada (ex.: 1339399241478570064)
-  transmissaoCategoryId: process.env.TRANSMISSAO_CATEGORY_ID ?? '',
-  // fallback (lista) caso a principal não exista
-  defaultCategoryIds: splitIds(process.env.DEFAULT_CATEGORY_IDS),
-  staffRoleIds: splitIds(process.env.STAFF_ROLE_IDS),
-  emptyMinutesToDelete: Math.max(1, Number(process.env.EMPTY_MINUTES ?? '4')),
+  defaultCategoryIds: process.env.DEFAULT_CATEGORY_IDS || '',
+  emptyMinutesToDelete: parseInt(process.env.EMPTY_MINUTES || '5', 10),
 };
 
-export function pickDefaultCategoryIdForGuild(all: string[], guildId: string | null): string | null {
-  if (!guildId) return all[0] ?? null;
-  // heurística simples: primeira que existe na lista
-  return all[0] ?? null;
+/**
+ * Retorna a categoria padrão conforme o ID da guild.
+ */
+export function pickDefaultCategoryIdForGuild(mapping: string, guildId: string): string | null {
+  if (!mapping) return null;
+  const pairs = mapping.split(',').map(s => s.trim());
+  for (const pair of pairs) {
+    const [gid, catId] = pair.split('=');
+    if (gid === guildId && /^\d{5,}$/.test(catId)) return catId;
+  }
+  return null;
+}
+
+/**
+ * Retorna todos os cargos de staff definidos no .env
+ * Exemplo: STAFF_ROLE_IDS=123,456,789
+ */
+export function getStaffRoleIds(): string[] {
+  const raw = process.env.STAFF_ROLE_IDS?.trim() ?? '';
+  return raw.length > 0
+    ? raw
+        .split(',')
+        .map(id => id.trim())
+        .filter(id => /^\d{5,}$/.test(id))
+    : [];
 }
