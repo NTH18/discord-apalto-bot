@@ -1,4 +1,3 @@
-// src/commands/apalto.ts
 import 'dotenv/config';
 import {
   ActionRowBuilder,
@@ -9,62 +8,35 @@ import {
   ChatInputCommandInteraction,
   PermissionFlagsBits,
   SlashCommandBuilder,
-  ThreadChannel,
-  TextChannel,
-  ForumChannel,
-  NewsChannel,
+  OverwriteResolvable, // 👈 ADICIONE ESTA LINHA
 } from 'discord.js';
+
 import { ok, err } from '../utils/embeds.ts';
 import { createApAltoPair } from '../utils/voiceManager.ts';
-import { CONFIG, pickDefaultCategoryIdForGuild } from '../config.ts';
+import { CONFIG, pickDefaultCategoryIdForGuild, getStaffRoleIds } from '../config.ts';
 
 function envTransmissaoId(): string | null {
-  // prioridade máxima: variável única de categoria fixa
   const id = process.env.TRANSMISSAO_CATEGORY_ID?.trim();
   return id && /^\d{5,}$/.test(id) ? id : null;
 }
 
 async function resolveCategory(interaction: ChatInputCommandInteraction): Promise<CategoryChannel | null> {
   const gid = interaction.guildId!;
-
-  // 1) TRANSMISSAO_CATEGORY_ID (env) – FORTEMENTE PREFERIDA
   const envId = envTransmissaoId();
+
   if (envId) {
     const c = await interaction.guild!.channels.fetch(envId).catch(() => null);
-    if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid) {
-      return c as CategoryChannel;
-    }
+    if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid) return c as CategoryChannel;
   }
 
-  // 2) DEFAULT_CATEGORY_IDS (CONFIG) – mapping por guild (ex: "GID=CATID,...")
   const forcedId = pickDefaultCategoryIdForGuild(CONFIG.defaultCategoryIds, gid);
   if (forcedId) {
     const c = await interaction.guild!.channels.fetch(forcedId).catch(() => null);
-    if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid) {
-      return c as CategoryChannel;
-    }
+    if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid) return c as CategoryChannel;
   }
 
-  // 3) parâmetro /apalto categoria
   const opt = interaction.options.getChannel('categoria');
-  if (opt?.type === ChannelType.GuildCategory && (opt as CategoryChannel).guildId === gid) {
-    return opt as CategoryChannel;
-  }
-
-  // 4) se estiver em tópico, sobe para a categoria
-  if (interaction.channel?.isThread()) {
-    const thread = interaction.channel as ThreadChannel;
-    const parent = thread.parent as (TextChannel | ForumChannel | NewsChannel | null);
-    const catId = parent?.parentId ?? null;
-    if (catId) {
-      const fetched = await interaction.guild!.channels.fetch(catId).catch(() => null);
-      if (fetched?.type === ChannelType.GuildCategory) return fetched as CategoryChannel;
-    }
-  }
-
-  // 5) pai do canal atual (se já estiver numa categoria)
-  const parent = (interaction.channel as TextChannel | ForumChannel | NewsChannel | null)?.parent;
-  if (parent?.type === ChannelType.GuildCategory) return parent as CategoryChannel;
+  if (opt?.type === ChannelType.GuildCategory && (opt as CategoryChannel).guildId === gid) return opt as CategoryChannel;
 
   return null;
 }
@@ -100,11 +72,50 @@ async function execute(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  const staffRoleIds = getStaffRoleIds();
+  const guestRoleId = process.env.CALL_GUEST_ROLE_ID?.trim() ?? null;
+
+const overwrites = [
+  {
+    id: interaction.guild!.roles.everyone.id, // <-- .id (string)
+    deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
+  },
+  {
+    id: interaction.user.id, // <-- string
+    allow: [
+      PermissionFlagsBits.Connect,
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.Speak,
+      PermissionFlagsBits.ManageChannels,
+    ],
+  },
+  // Cargos STAFF com permissão total
+  ...getStaffRoleIds().map(id => ({
+    id: id, // já string
+    allow: [
+      PermissionFlagsBits.Connect,
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.Speak,
+      PermissionFlagsBits.ManageChannels,
+    ],
+  })),
+  // Cargo convidado (apenas entrar)
+  ...(guestRoleId
+    ? [
+        {
+          id: guestRoleId,
+          allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
+        },
+      ]
+    : []),
+] satisfies OverwriteResolvable[];
+
   const { team1, team2 } = await createApAltoPair({
-    client: interaction.client,
+    client: interaction.client,                                                             
     guildId: interaction.guildId!,
-    categoryId: category.id,   // <- garante que nasce DENTRO da categoria
+    categoryId: category.id,
     creatorId: interaction.user.id,
+    permissionOverwrites: overwrites,
   });
 
   const leader1Btn = new ButtonBuilder()
@@ -126,9 +137,9 @@ async function execute(interaction: ChatInputCommandInteraction) {
     embeds: [ok(
       'Calls criadas',
       `Defina os **líderes** (um pra cada time).\n• ${team1}\n• ${team2}\n\n` +
-      `As calls serão **visíveis** para todos, mas só líderes conectam.\n` +
-      `Líderes poderão **arrastar / mutar / ensurdecer** na própria call.\n` +
-      `As calls são apagadas se as duas ficarem vazias por ${CONFIG.emptyMinutesToDelete} min.`
+      `Líderes e cargos staff têm **gerenciamento total**.\n` +
+      `O cargo <@&${guestRoleId}> pode **apenas entrar** nas calls.\n` +
+      `As calls são apagadas se ficarem vazias por ${CONFIG.emptyMinutesToDelete} min.`
     )],
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(leader1Btn, leader2Btn, applyBtn)],
   }).catch(() => {});

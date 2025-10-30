@@ -40,44 +40,29 @@ function randomTwoEmojis(): [string, string] {
   return [pool[a], pool[b]];
 }
 
+/**
+ * Cria as duas calls (TIME 1 / TIME 2) com permissões customizadas.
+ */
 export async function createApAltoPair(opts: {
   client: Client;
   guildId: string;
   categoryId: string;
   creatorId: string;
+  permissionOverwrites?: OverwriteResolvable[];
 }) {
-  const { client, guildId, categoryId, creatorId } = opts;
+  const { client, guildId, categoryId, creatorId, permissionOverwrites } = opts;
 
   const guild = await client.guilds.fetch(guildId);
   const category = await guild.channels.fetch(categoryId);
-  if (!category || category.type !== ChannelType.GuildCategory) {
-    throw new Error("Categoria inválida");
-  }
+  if (!category || category.type !== ChannelType.GuildCategory) throw new Error("Categoria inválida");
 
   const [e1, e2] = randomTwoEmojis();
-  const everyoneId = guild.roles.everyone.id;
-
-  const baseOverwrites: OverwriteResolvable[] = [
-    { id: everyoneId, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.Connect] },
-    {
-      id: creatorId,
-      allow: [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.Connect,
-        PermissionFlagsBits.Speak,
-        PermissionFlagsBits.ManageChannels,
-        PermissionFlagsBits.MoveMembers,
-        PermissionFlagsBits.MuteMembers,
-        PermissionFlagsBits.DeafenMembers,
-      ],
-    },
-  ];
 
   const team1 = await guild.channels.create({
     name: `${e1} ・ TIME 1`,
     type: ChannelType.GuildVoice,
     parent: category.id,
-    permissionOverwrites: baseOverwrites,
+    permissionOverwrites,
     reason: "apalto: criação TIME 1",
   });
 
@@ -85,7 +70,7 @@ export async function createApAltoPair(opts: {
     name: `${e2} ・ TIME 2`,
     type: ChannelType.GuildVoice,
     parent: category.id,
-    permissionOverwrites: baseOverwrites,
+    permissionOverwrites,
     reason: "apalto: criação TIME 2",
   });
 
@@ -158,28 +143,6 @@ export async function grantTeamAccessForLeaders(opts: {
     ch1.permissionOverwrites.set(overwrites1),
     ch2.permissionOverwrites.set(overwrites2),
   ]);
-
-  // Dar MoveMembers + ViewChannel a líderes em calls públicas (para arrastar)
-  const all = await guild.channels.fetch();
-  const publics = [...all.values()].filter(
-    (c): c is VoiceChannel =>
-      !!c &&
-      c.type === ChannelType.GuildVoice &&
-      c.permissionsFor(everyoneId)?.has(PermissionFlagsBits.Connect, true) === true
-  );
-
-  const applyOne = async (vc: VoiceChannel, uid: string) =>
-    vc.permissionOverwrites.edit(uid, {
-      MoveMembers: true,
-      ViewChannel: true,
-    }).catch(() => {});
-
-  await Promise.all(
-    publics.map(async (vc) => {
-      if (leader1Id) await applyOne(vc, leader1Id);
-      if (leader2Id) await applyOne(vc, leader2Id);
-    }),
-  );
 }
 
 /** Auto delete após ambas vazias */
