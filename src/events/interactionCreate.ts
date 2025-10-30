@@ -18,14 +18,24 @@ import {
   VoiceChannel,
   MessageActionRowComponentBuilder,
 } from 'discord.js';
-import { grantTeamAccessForLeaders } from '../utils/voiceManager.ts';
 import { ok, err, warn } from '../utils/embeds.ts';
+import { grantTeamAccessForLeaders } from '../utils/voiceManager.ts';
 import { getStaffRoleIds } from '../config.ts';
+
+/* ======================================================================================
+   🧩 SISTEMA DE SELEÇÃO DE LÍDERES /APALTO
+   - Suporte a escolha via menu ou ID
+   - Verificação de staff personalizada (STAFF_ROLE_IDS + permissão nativa)
+   - Aplicação de permissões preservando cargos existentes
+====================================================================================== */
 
 type TempStore = { leader1?: string; leader2?: string };
 const store = new Map<string, TempStore>();
 const keyOf = (t1: string, t2: string) => `${t1}:${t2}`;
 
+/**
+ * Resposta segura: envia reply/followUp dependendo do estado da interação
+ */
 async function safeRespond(
   i: Interaction,
   payload: Parameters<RepliableInteraction['reply']>[0],
@@ -35,10 +45,25 @@ async function safeRespond(
   return ix.reply(payload).catch(() => {});
 }
 
+/**
+ * Verifica se o membro é staff:
+ * ✅ Tem permissão nativa de gerenciar canais
+ * ✅ OU tem um cargo listado em STAFF_ROLE_IDS (.env)
+ */
 function isStaff(member: GuildMember | null): boolean {
-  return !!member?.permissions?.has?.(PermissionFlagsBits.ManageChannels);
+  if (!member) return false;
+
+  // Permissão nativa
+  if (member.permissions.has(PermissionFlagsBits.ManageChannels)) return true;
+
+  // Verifica cargos definidos no .env
+  const staffIds = getStaffRoleIds();
+  return member.roles.cache.some(r => staffIds.includes(r.id));
 }
 
+/* ======================================================================================
+   EVENTO PRINCIPAL
+====================================================================================== */
 export default {
   name: Events.InteractionCreate,
   async execute(interaction: Interaction) {
@@ -54,7 +79,7 @@ export default {
       const member = interaction.member as GuildMember | null;
       if (!isStaff(member)) {
         await safeRespond(interaction, {
-          embeds: [err('Sem permissão', 'Você precisa de **Gerenciar Canais**.')],
+          embeds: [err('Sem permissão', 'Você precisa ter **Gerenciar Canais** ou um cargo listado em `STAFF_ROLE_IDS`.')],
           ephemeral: true,
         });
         return;
@@ -63,14 +88,16 @@ export default {
       const parts = interaction.customId.split(':');
       const action = parts[1];
 
-      // ======== BOTÕES ========
+      /* =====================================================
+         🧭 BOTÕES
+      ===================================================== */
       if (interaction.isButton()) {
-        // Seleção de líderes
+        // Selecionar líder via menu
         if (action === 'pickL1' || action === 'pickL2') {
           const t1 = parts[2];
           const t2 = parts[3];
-
           await interaction.deferUpdate().catch(() => {});
+
           const target = action === 'pickL1' ? 'leader1' : 'leader2';
           const label = action === 'pickL1' ? 'Escolha o líder do TIME 1' : 'Escolha o líder do TIME 2';
 
@@ -92,7 +119,7 @@ export default {
           return;
         }
 
-        // APLICAÇÃO DE PERMISSÕES (corrigido)
+        // Aplicar permissões aos canais
         if (action === 'finalize') {
           const t1 = parts[2];
           const t2 = parts[3];
@@ -130,6 +157,7 @@ export default {
             return;
           }
 
+          // Verifica se o bot tem as permissões necessárias
           const needed = [
             PermissionFlagsBits.ManageChannels,
             PermissionFlagsBits.MoveMembers,
@@ -156,7 +184,6 @@ export default {
           }
 
           try {
-            // Adiciona líderes SEM remover os cargos existentes
             const leaderPerms = {
               Connect: true,
               ViewChannel: true,
@@ -169,39 +196,35 @@ export default {
 
             const staffIds = getStaffRoleIds();
 
-            // ✅ Aplica permissões preservando as existentes
+            // ✅ Aplica líderes sem apagar as permissões já existentes
             if (saved.leader1) await v1.permissionOverwrites.edit(saved.leader1, leaderPerms).catch(() => {});
             if (saved.leader2) await v2.permissionOverwrites.edit(saved.leader2, leaderPerms).catch(() => {});
 
-            // ✅ Garante que os cargos staff ainda tenham permissão
+            // ✅ Mantém cargos staff com controle total
             for (const id of staffIds) {
               await v1.permissionOverwrites.edit(id, leaderPerms).catch(() => {});
               await v2.permissionOverwrites.edit(id, leaderPerms).catch(() => {});
             }
 
-            // Atualiza o painel
+            // Desabilita os botões após aplicar
             const msg = interaction.message;
             if (msg && msg.editable) {
               const newRows = (msg.components as any[]).map((r) => {
                 const existing = ActionRowBuilder.from(r) as ActionRowBuilder<MessageActionRowComponentBuilder>;
                 const rebuilt = new ActionRowBuilder<MessageActionRowComponentBuilder>();
                 const comps = (existing.components ?? []) as MessageActionRowComponentBuilder[];
-
                 for (const c of comps) {
                   if ((c as any).data?.type === ComponentType.Button) {
                     rebuilt.addComponents(ButtonBuilder.from(c as any).setDisabled(true));
-                  } else {
-                    rebuilt.addComponents(c as any);
-                  }
+                  } else rebuilt.addComponents(c as any);
                 }
                 return rebuilt;
               });
-
               await msg.edit({ components: newRows }).catch(() => {});
             }
 
             await safeRespond(interaction, {
-              embeds: [ok('Permissões aplicadas ✅', 'Os líderes foram adicionados sem remover os cargos anteriores.')],
+              embeds: [ok('Permissões aplicadas ✅', 'Os líderes e cargos staff agora têm controle total nas calls.')],
               ephemeral: true,
             });
           } catch (e: any) {
@@ -211,12 +234,11 @@ export default {
           return;
         }
 
-        // Botão: informar ID
+        // Botão para inserir ID manualmente
         if (action === 'enterid') {
           const target = parts[2] as 'leader1' | 'leader2';
           const t1 = parts[3];
           const t2 = parts[4];
-
           try {
             const modal = new ModalBuilder()
               .setCustomId(`apalto:modal:${target}:${t1}:${t2}`)
@@ -233,14 +255,10 @@ export default {
 
             const row = new ActionRowBuilder<TextInputBuilder>().addComponents(input);
             modal.addComponents(row);
-
             await (interaction as ButtonInteraction).showModal(modal);
           } catch (e: any) {
             console.error('[apalto] showModal error:', e);
-            await safeRespond(interaction, {
-              embeds: [err('Não foi possível abrir o modal', e?.message ?? 'Tente novamente.')],
-              ephemeral: true,
-            });
+            await safeRespond(interaction, { embeds: [err('Não foi possível abrir o modal', e?.message ?? 'Tente novamente.')], ephemeral: true });
           }
           return;
         }
@@ -249,7 +267,9 @@ export default {
         return;
       }
 
-      // ======== MENU DE USUÁRIO ========
+      /* =====================================================
+         MENU DE SELEÇÃO DE USUÁRIO
+      ===================================================== */
       if (interaction.isAnySelectMenu() && interaction.componentType === ComponentType.UserSelect) {
         await interaction.deferUpdate().catch(() => {});
         const target = parts[1] as 'leader1' | 'leader2';
@@ -270,7 +290,9 @@ export default {
         return;
       }
 
-      // ======== SUBMIT DO MODAL ========
+      /* =====================================================
+         SUBMISSÃO DO MODAL DE ID
+      ===================================================== */
       if (interaction.isModalSubmit() && action === 'modal') {
         const target = parts[2] as 'leader1' | 'leader2';
         const t1 = parts[3];
