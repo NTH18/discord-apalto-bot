@@ -20,6 +20,7 @@ import {
 } from 'discord.js';
 import { grantTeamAccessForLeaders } from '../utils/voiceManager.ts';
 import { ok, err, warn } from '../utils/embeds.ts';
+import { getStaffRoleIds } from '../config.ts';
 
 type TempStore = { leader1?: string; leader2?: string };
 const store = new Map<string, TempStore>();
@@ -62,14 +63,14 @@ export default {
       const parts = interaction.customId.split(':');
       const action = parts[1];
 
-      // ===== Botões =====
+      // ======== BOTÕES ========
       if (interaction.isButton()) {
+        // Seleção de líderes
         if (action === 'pickL1' || action === 'pickL2') {
           const t1 = parts[2];
           const t2 = parts[3];
 
           await interaction.deferUpdate().catch(() => {});
-
           const target = action === 'pickL1' ? 'leader1' : 'leader2';
           const label = action === 'pickL1' ? 'Escolha o líder do TIME 1' : 'Escolha o líder do TIME 2';
 
@@ -91,14 +92,15 @@ export default {
           return;
         }
 
+        // APLICAÇÃO DE PERMISSÕES (corrigido)
         if (action === 'finalize') {
           const t1 = parts[2];
           const t2 = parts[3];
           const k = keyOf(t1, t2);
 
           await interaction.deferUpdate().catch(() => {});
-
           const saved = store.get(k);
+
           if (!saved || (!saved.leader1 && !saved.leader2)) {
             await safeRespond(interaction, {
               embeds: [warn('Nada selecionado', 'Defina pelo menos um líder antes de aplicar.')],
@@ -154,15 +156,30 @@ export default {
           }
 
           try {
-            await grantTeamAccessForLeaders({
-              client: interaction.client,
-              guildId: guild.id,
-              team1Id: v1.id,
-              team2Id: v2.id,
-              leader1Id: saved.leader1,
-              leader2Id: saved.leader2,
-            });
+            // Adiciona líderes SEM remover os cargos existentes
+            const leaderPerms = {
+              Connect: true,
+              ViewChannel: true,
+              Speak: true,
+              ManageChannels: true,
+              MoveMembers: true,
+              MuteMembers: true,
+              DeafenMembers: true,
+            };
 
+            const staffIds = getStaffRoleIds();
+
+            // ✅ Aplica permissões preservando as existentes
+            if (saved.leader1) await v1.permissionOverwrites.edit(saved.leader1, leaderPerms).catch(() => {});
+            if (saved.leader2) await v2.permissionOverwrites.edit(saved.leader2, leaderPerms).catch(() => {});
+
+            // ✅ Garante que os cargos staff ainda tenham permissão
+            for (const id of staffIds) {
+              await v1.permissionOverwrites.edit(id, leaderPerms).catch(() => {});
+              await v2.permissionOverwrites.edit(id, leaderPerms).catch(() => {});
+            }
+
+            // Atualiza o painel
             const msg = interaction.message;
             if (msg && msg.editable) {
               const newRows = (msg.components as any[]).map((r) => {
@@ -183,7 +200,10 @@ export default {
               await msg.edit({ components: newRows }).catch(() => {});
             }
 
-            await safeRespond(interaction, { embeds: [ok('Permissões aplicadas', 'Os líderes já têm acesso.')], ephemeral: true });
+            await safeRespond(interaction, {
+              embeds: [ok('Permissões aplicadas ✅', 'Os líderes foram adicionados sem remover os cargos anteriores.')],
+              ephemeral: true,
+            });
           } catch (e: any) {
             console.error('[apalto] finalize error:', e);
             await safeRespond(interaction, { embeds: [err('Erro ao aplicar', e?.message ?? 'Falha inesperada.')], ephemeral: true });
@@ -191,6 +211,7 @@ export default {
           return;
         }
 
+        // Botão: informar ID
         if (action === 'enterid') {
           const target = parts[2] as 'leader1' | 'leader2';
           const t1 = parts[3];
@@ -201,13 +222,12 @@ export default {
               .setCustomId(`apalto:modal:${target}:${t1}:${t2}`)
               .setTitle('Informar ID do usuário');
 
-            // ⚠️ Rótulo curto (<= 45 chars) + exemplo no placeholder – evita "Invalid string length"
             const input = new TextInputBuilder()
               .setCustomId('userId')
               .setLabel('ID do usuário')
               .setPlaceholder('Ex.: 123456789012345678')
               .setStyle(TextInputStyle.Short)
-              .setMinLength(17) // opcional, ajuda a filtrar valores óbvios
+              .setMinLength(17)
               .setMaxLength(20)
               .setRequired(true);
 
@@ -229,7 +249,7 @@ export default {
         return;
       }
 
-      // ===== Menu de usuário =====
+      // ======== MENU DE USUÁRIO ========
       if (interaction.isAnySelectMenu() && interaction.componentType === ComponentType.UserSelect) {
         await interaction.deferUpdate().catch(() => {});
         const target = parts[1] as 'leader1' | 'leader2';
@@ -250,7 +270,7 @@ export default {
         return;
       }
 
-      // ===== Submit do modal =====
+      // ======== SUBMIT DO MODAL ========
       if (interaction.isModalSubmit() && action === 'modal') {
         const target = parts[2] as 'leader1' | 'leader2';
         const t1 = parts[3];
@@ -275,7 +295,6 @@ export default {
         return;
       }
 
-      // fallback
       await safeRespond(interaction, { embeds: [warn('Ação inválida', 'Use os botões do painel do /apalto.')], ephemeral: true });
     } catch (e) {
       console.error('interactionCreate error:', e);
