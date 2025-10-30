@@ -9,35 +9,34 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   OverwriteResolvable,
+  Role,
 } from 'discord.js';
 
 import { ok, err } from '../utils/embeds.ts';
 import { createApAltoPair } from '../utils/voiceManager.ts';
 import { CONFIG, pickDefaultCategoryIdForGuild, getStaffRoleIds } from '../config.ts';
 
-/**
- * Lê o ID da categoria de transmissão do .env
- */
+/* ==========================================================
+   🔧 Utilitário: pega categoria padrão de transmissão
+========================================================== */
 function envTransmissaoId(): string | null {
   const id = process.env.TRANSMISSAO_CATEGORY_ID?.trim();
   return id && /^\d{5,}$/.test(id) ? id : null;
 }
 
-/**
- * Resolve qual categoria usar para criar as calls
- */
+/* ==========================================================
+   📁 Resolve categoria onde as calls serão criadas
+========================================================== */
 async function resolveCategory(interaction: ChatInputCommandInteraction): Promise<CategoryChannel | null> {
   const gid = interaction.guildId!;
   const envId = envTransmissaoId();
 
-  // 1️⃣ Tenta usar TRANSMISSAO_CATEGORY_ID
   if (envId) {
     const c = await interaction.guild!.channels.fetch(envId).catch(() => null);
     if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid)
       return c as CategoryChannel;
   }
 
-  // 2️⃣ Tenta pegar da configuração DEFAULT_CATEGORY_IDS
   const forcedId = pickDefaultCategoryIdForGuild(CONFIG.defaultCategoryIds, gid);
   if (forcedId) {
     const c = await interaction.guild!.channels.fetch(forcedId).catch(() => null);
@@ -45,7 +44,6 @@ async function resolveCategory(interaction: ChatInputCommandInteraction): Promis
       return c as CategoryChannel;
   }
 
-  // 3️⃣ Tenta pegar da opção do comando
   const opt = interaction.options.getChannel('categoria');
   if (opt?.type === ChannelType.GuildCategory && (opt as CategoryChannel).guildId === gid)
     return opt as CategoryChannel;
@@ -53,9 +51,9 @@ async function resolveCategory(interaction: ChatInputCommandInteraction): Promis
   return null;
 }
 
-/**
- * Dados do comando
- */
+/* ==========================================================
+   ⚙️ Estrutura do comando
+========================================================== */
 const data = new SlashCommandBuilder()
   .setName('apalto')
   .setDescription('Cria duas calls privadas para ap-alto (TIME 1 e TIME 2).')
@@ -68,9 +66,9 @@ const data = new SlashCommandBuilder()
   )
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
 
-/**
- * Execução do comando principal
- */
+/* ==========================================================
+   🚀 Execução do comando
+========================================================== */
 async function execute(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
@@ -86,7 +84,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
         embeds: [
           err(
             'Categoria inválida',
-            'Defina TRANSMISSAO_CATEGORY_ID no .env **ou** mapeie em DEFAULT_CATEGORY_IDS (GUILD_ID=CATEGORY_ID).',
+            'Defina TRANSMISSAO_CATEGORY_ID no .env **ou** mapeie em DEFAULT_CATEGORY_IDS (GUILD_ID=CATEGORY_ID).'
           ),
         ],
       }).catch(() => {});
@@ -96,7 +94,17 @@ async function execute(interaction: ChatInputCommandInteraction) {
     const staffRoleIds = getStaffRoleIds();
     const guestRoleId = process.env.CALL_GUEST_ROLE_ID?.trim() ?? null;
 
-    // Permissões personalizadas
+    // 🔒 Verifica se os cargos realmente existem no servidor
+    const resolvedStaffRoles = (
+      await Promise.all(staffRoleIds.map(id => interaction.guild!.roles.fetch(id).catch(() => null)))
+    ).filter((r): r is Role => !!r)
+     .map(r => r.id);
+
+    const resolvedGuestRole = guestRoleId
+      ? await interaction.guild!.roles.fetch(guestRoleId).catch(() => null)
+      : null;
+
+    // 🎚️ Permissões de canal
     const overwrites: OverwriteResolvable[] = [
       {
         id: interaction.guild!.roles.everyone.id,
@@ -111,8 +119,8 @@ async function execute(interaction: ChatInputCommandInteraction) {
           PermissionFlagsBits.ManageChannels,
         ],
       },
-      // Cargos STAFF com permissão total
-      ...staffRoleIds.map((id: string) => ({
+      // STAFF válidos
+      ...resolvedStaffRoles.map(id => ({
         id,
         allow: [
           PermissionFlagsBits.Connect,
@@ -122,17 +130,17 @@ async function execute(interaction: ChatInputCommandInteraction) {
         ],
       })),
       // Cargo convidado (apenas entrar)
-      ...(guestRoleId
+      ...(resolvedGuestRole
         ? [
             {
-              id: guestRoleId,
+              id: resolvedGuestRole.id,
               allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
             },
           ]
         : []),
     ];
 
-    // Cria as calls TIME 1 e TIME 2
+    // 🏗️ Cria as calls
     const { team1, team2 } = await createApAltoPair({
       client: interaction.client,
       guildId: interaction.guildId!,
@@ -141,7 +149,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
       permissionOverwrites: overwrites,
     });
 
-    // Botões
+    // 🧩 Botões
     const leader1Btn = new ButtonBuilder()
       .setCustomId(`apalto:pickL1:${team1.id}:${team2.id}`)
       .setStyle(ButtonStyle.Secondary)
@@ -157,17 +165,16 @@ async function execute(interaction: ChatInputCommandInteraction) {
       .setStyle(ButtonStyle.Success)
       .setLabel('Aplicar Permissões');
 
-    // Envia resposta
     await interaction.editReply({
       embeds: [
         ok(
           'Calls criadas ✅',
           `Defina os **líderes** (um pra cada time):\n• ${team1}\n• ${team2}\n\n` +
             `Líderes e cargos staff têm **gerenciamento total**.\n` +
-            (guestRoleId
-              ? `O cargo <@&${guestRoleId}> pode **apenas entrar** nas calls.\n`
+            (resolvedGuestRole
+              ? `O cargo <@&${resolvedGuestRole.id}> pode **apenas entrar** nas calls.\n`
               : '') +
-            `As calls são apagadas se ficarem vazias por ${CONFIG.emptyMinutesToDelete} min.`,
+            `As calls são apagadas se ficarem vazias por ${CONFIG.emptyMinutesToDelete} min.`
         ),
       ],
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(leader1Btn, leader2Btn, applyBtn)],
