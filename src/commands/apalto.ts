@@ -16,17 +16,11 @@ import { ok, err } from '../utils/embeds.ts';
 import { createApAltoPair } from '../utils/voiceManager.ts';
 import { CONFIG, pickDefaultCategoryIdForGuild, getStaffRoleIds } from '../config.ts';
 
-/* ==========================================================
-   🔧 Utilitário: pega categoria padrão de transmissão
-========================================================== */
 function envTransmissaoId(): string | null {
   const id = process.env.TRANSMISSAO_CATEGORY_ID?.trim();
   return id && /^\d{5,}$/.test(id) ? id : null;
 }
 
-/* ==========================================================
-   📁 Resolve categoria onde as calls serão criadas
-========================================================== */
 async function resolveCategory(interaction: ChatInputCommandInteraction): Promise<CategoryChannel | null> {
   const gid = interaction.guildId!;
   const envId = envTransmissaoId();
@@ -51,9 +45,6 @@ async function resolveCategory(interaction: ChatInputCommandInteraction): Promis
   return null;
 }
 
-/* ==========================================================
-   ⚙️ Estrutura do comando
-========================================================== */
 const data = new SlashCommandBuilder()
   .setName('apalto')
   .setDescription('Cria duas calls privadas para ap-alto (TIME 1 e TIME 2).')
@@ -66,9 +57,6 @@ const data = new SlashCommandBuilder()
   )
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
 
-/* ==========================================================
-   🚀 Execução do comando
-========================================================== */
 async function execute(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
@@ -94,7 +82,6 @@ async function execute(interaction: ChatInputCommandInteraction) {
     const staffRoleIds = getStaffRoleIds();
     const guestRoleId = process.env.CALL_GUEST_ROLE_ID?.trim() ?? null;
 
-    // 🔒 Verifica se os cargos realmente existem no servidor
     const resolvedStaffRoles = (
       await Promise.all(staffRoleIds.map(id => interaction.guild!.roles.fetch(id).catch(() => null)))
     ).filter((r): r is Role => !!r)
@@ -104,7 +91,6 @@ async function execute(interaction: ChatInputCommandInteraction) {
       ? await interaction.guild!.roles.fetch(guestRoleId).catch(() => null)
       : null;
 
-    // 🎚️ Permissões de canal
     const overwrites: OverwriteResolvable[] = [
       {
         id: interaction.guild!.roles.everyone.id,
@@ -117,9 +103,13 @@ async function execute(interaction: ChatInputCommandInteraction) {
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.Speak,
           PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageRoles,
+          PermissionFlagsBits.MuteMembers,
+          PermissionFlagsBits.DeafenMembers,
+          PermissionFlagsBits.MoveMembers,
         ],
       },
-      // STAFF válidos
+      // Cargos STAFF com permissões completas
       ...resolvedStaffRoles.map(id => ({
         id,
         allow: [
@@ -127,6 +117,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.Speak,
           PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageRoles,
+          PermissionFlagsBits.MuteMembers,
+          PermissionFlagsBits.DeafenMembers,
+          PermissionFlagsBits.MoveMembers,
         ],
       })),
       // Cargo convidado (apenas entrar)
@@ -140,7 +134,6 @@ async function execute(interaction: ChatInputCommandInteraction) {
         : []),
     ];
 
-    // 🏗️ Cria as calls
     const { team1, team2 } = await createApAltoPair({
       client: interaction.client,
       guildId: interaction.guildId!,
@@ -149,7 +142,6 @@ async function execute(interaction: ChatInputCommandInteraction) {
       permissionOverwrites: overwrites,
     });
 
-    // 🧩 Botões
     const leader1Btn = new ButtonBuilder()
       .setCustomId(`apalto:pickL1:${team1.id}:${team2.id}`)
       .setStyle(ButtonStyle.Secondary)
@@ -170,7 +162,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
         ok(
           'Calls criadas ✅',
           `Defina os **líderes** (um pra cada time):\n• ${team1}\n• ${team2}\n\n` +
-            `Líderes e cargos staff têm **gerenciamento total**.\n` +
+            `Líderes e cargos staff têm **gerenciamento total** (incluindo mover, mutar e ensurdecer membros).\n` +
             (resolvedGuestRole
               ? `O cargo <@&${resolvedGuestRole.id}> pode **apenas entrar** nas calls.\n`
               : '') +
