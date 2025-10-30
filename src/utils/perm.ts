@@ -1,32 +1,37 @@
 // src/utils/perm.ts
 import { PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import type { GuildMember, APIInteractionGuildMember } from 'discord.js';
-import { CONFIG } from '../config.ts';
+import { getStaffRoleIds } from '../config.ts';
 
+/**
+ * Verifica se o membro tem permissão de staff.
+ * Pode ser via permissão (ManageChannels / ManageGuild)
+ * ou via cargo listado em STAFF_ROLE_IDS no .env.
+ */
 export function hasStaffPermission(
   member: GuildMember | APIInteractionGuildMember | null | undefined
 ): boolean {
   if (!member) return false;
 
-  // 1) Construir o bitfield de permissões
-  // - GuildMember: já vem um PermissionsBitField
-  // - APIInteractionGuildMember: vem como string (bits); precisamos transformar
+  // 1️⃣ Pega o bitfield de permissões do membro
   const perms =
     (member as GuildMember).permissions ??
     new PermissionsBitField(BigInt((member as APIInteractionGuildMember).permissions ?? '0'));
 
-  // 2) Staff por perm: ManageChannels ou ManageGuild
+  // 2️⃣ Staff por permissão administrativa direta
   if (perms.has(PermissionFlagsBits.ManageChannels) || perms.has(PermissionFlagsBits.ManageGuild)) {
     return true;
   }
 
-  // 3) Staff por cargo (STAFF_ROLE_IDS no .env)
+  // 3️⃣ Staff por cargo (STAFF_ROLE_IDS definidos no .env)
+  const staffRoleIds = getStaffRoleIds();
   let roles: string[] = [];
+
   if ((member as GuildMember).roles?.cache) {
     roles = Array.from((member as GuildMember).roles.cache.keys());
   } else if (Array.isArray((member as APIInteractionGuildMember).roles)) {
     roles = (member as APIInteractionGuildMember).roles;
   }
 
-  return roles.some((r) => CONFIG.staffRoleIds.includes(r));
+  return roles.some((r) => staffRoleIds.includes(r));
 }
