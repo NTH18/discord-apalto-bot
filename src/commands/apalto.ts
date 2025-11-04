@@ -1,4 +1,3 @@
-// src/commands/apalto.ts
 import 'dotenv/config';
 import {
   ActionRowBuilder,
@@ -138,7 +137,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
       guildId: interaction.guildId!,
       categoryId: category.id,
       creatorId: interaction.user.id,
-      permissionOverwrites: overwrites,
+      permissionOverwrites: overwrites, // Passando as permissões para a criação dos canais
     });
 
     const leader1Btn = new ButtonBuilder()

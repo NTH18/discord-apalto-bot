@@ -1,18 +1,33 @@
+/**
+ * Remove todos os comandos registrados nas guilds listadas no .env
+ * Ideal antes de fazer um redeploy completo para evitar comandos antigos.
+ */
+
 import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
 
-const token = process.env.DISCORD_TOKEN!;
-const clientId = process.env.CLIENT_ID!;
+const split = (v?: string) => (v ?? '').split(',').map(s => s.trim()).filter(Boolean);
 
-if (!token || !clientId) {
-  console.error('❌ Faltam DISCORD_TOKEN/CLIENT_ID no .env');
+const token = process.env.DISCORD_TOKEN ?? '';
+const clientId = process.env.CLIENT_ID ?? '';
+const guildIds = split(process.env.GUILD_IDS);
+
+if (!token || !clientId || !guildIds.length) {
+  console.error('❌ Preencha DISCORD_TOKEN, CLIENT_ID e GUILD_IDS no .env');
   process.exit(1);
 }
 
 const rest = new REST({ version: '10' }).setToken(token);
 
-async function main() {
-  const res = await rest.put(Routes.applicationCommands(clientId), { body: [] });
-  console.log('🧹 Globais limpos:', res as any);
-}
-main().catch(console.error);
+(async () => {
+  console.log('🧹 Limpando comandos de guilds...');
+  for (const gid of guildIds) {
+    try {
+      await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: [] });
+      console.log(`✅ Comandos removidos da guild ${gid}`);
+    } catch (err) {
+      console.error(`❌ Falha ao limpar guild ${gid}:`, err);
+    }
+  }
+  console.log('✨ Limpeza de guilds concluída.');
+})();
