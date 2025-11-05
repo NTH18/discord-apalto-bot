@@ -1,4 +1,4 @@
-// src/types.ts
+// src/types
 import type {
   ChatInputCommandInteraction,
   Client,

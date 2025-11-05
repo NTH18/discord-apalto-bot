@@ -1,4 +1,4 @@
-// src/scripts/deploy-commands.ts
+// src/scripts/deploy-commands
 import 'dotenv/config';
 import { REST, Routes, SlashCommandBuilder } from 'discord.js';
 import fs from 'fs';
@@ -25,7 +25,7 @@ if (!token || !clientId || !guildIds.length) {
 // 📦 Carregar comandos automaticamente de src/commands/
 // ============================================================================
 const commandsPath = path.join(process.cwd(), 'src', 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.ts') || f.endsWith('.js'));
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('') || f.endsWith('.js'));
 
 const commands: any[] = [];
 

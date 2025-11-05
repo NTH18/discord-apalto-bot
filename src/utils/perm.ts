@@ -1,7 +1,7 @@
-// src/utils/perm.ts
+// src/utils/perm
 import { PermissionsBitField, PermissionFlagsBits } from 'discord.js';
 import type { GuildMember, APIInteractionGuildMember } from 'discord.js';
-import { getStaffRoleIds } from '../config.ts';
+import { getStaffRoleIds } from '../config.js';
 
 /**
  * Verifica se o membro tem permissão de staff.

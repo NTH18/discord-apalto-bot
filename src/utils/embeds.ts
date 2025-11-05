@@ -1,17 +1,10 @@
-import { APIEmbed } from 'discord.js';
+import { EmbedBuilder } from "discord.js";
 
-const color = {
-  ok: 0x35c46a,
-  warn: 0xf5a623,
-  err: 0xef5350,
-};
+export const ok = (title: string, desc?: string) =>
+  new EmbedBuilder().setColor(0x2ecc71).setTitle(`✅ ${title}`).setDescription(desc ?? '');
 
-export function ok(title: string, desc?: string): APIEmbed {
-  return { title: `✅ ${title}`, description: desc, color: color.ok };
-}
-export function warn(title: string, desc?: string): APIEmbed {
-  return { title: `⚠️ ${title}`, description: desc, color: color.warn };
-}
-export function err(title: string, desc?: string): APIEmbed {
-  return { title: `❌ ${title}`, description: desc, color: color.err };
-}
+export const err = (title: string, desc?: string) =>
+  new EmbedBuilder().setColor(0xe74c3c).setTitle(`❌ ${title}`).setDescription(desc ?? '');
+
+export const warn = (title: string, desc?: string) =>
+  new EmbedBuilder().setColor(0xf1c40f).setTitle(`⚠️ ${title}`).setDescription(desc ?? '');

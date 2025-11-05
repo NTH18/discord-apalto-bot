@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { Client, Collection, Events, GatewayIntentBits, Partials } from 'discord.js';
-import apalto from './commands/apalto.ts';
-import interactionCreate from './events/interactionCreate.ts';
+import apalto from './commands/apalto.js';
+import interactionCreate from './events/interactionCreate.js';
 
 const client = new Client({
   intents: [
@@ -15,7 +15,7 @@ const client = new Client({
 client.commands = new Collection();
 client.commands.set(apalto.data.name, apalto);
 
-// ⚠️ apenas UM listener de InteractionCreate (o seu events/interactionCreate.ts cuida do painel)
+// ⚠️ apenas UM listener de InteractionCreate (o seu events/interactionCreate cuida do painel)
 client.once(Events.ClientReady, (c) => console.log(`✅ Logado como ${c.user.tag}`));
 
 client.on(Events.InteractionCreate, async (i) => {

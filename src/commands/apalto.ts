@@ -1,183 +1,115 @@
-import 'dotenv/config';
+// src/commands/apalto.ts
 import {
+  ChatInputCommandInteraction,
+  SlashCommandBuilder,
+  PermissionFlagsBits,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  CategoryChannel,
-  ChannelType,
-  ChatInputCommandInteraction,
-  PermissionFlagsBits,
-  SlashCommandBuilder,
-  OverwriteResolvable,
-} from 'discord.js';
+  EmbedBuilder,
+} from "discord.js";
+import { ok, err } from "../utils/embeds.js";
+import { createApAltoPair } from "../utils/voiceManager.js";
+import { CONFIG, pickDefaultCategoryIdForGuild, getStaffRoleIds } from "../config.js";
 
-import { ok, err } from '../utils/embeds.ts';
-import { createApAltoPair } from '../utils/voiceManager.ts';
-import { CONFIG, pickDefaultCategoryIdForGuild, getStaffRoleIds } from '../config.ts';
+export default {
+  data: new SlashCommandBuilder()
+    .setName("apalto")
+    .setDescription("Cria duas calls privadas para ap-alto (TIME 1 e TIME 2).")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
-/**
- * Lê o ID da categoria de transmissão do .env
- */
-function envTransmissaoId(): string | null {
-  const id = process.env.TRANSMISSAO_CATEGORY_ID?.trim();
-  return id && /^\d{5,}$/.test(id) ? id : null;
-}
+  async execute(interaction: ChatInputCommandInteraction) {
+    try {
+      const guild = interaction.guild!;
+      const member = interaction.member as any;
+      const staffIds = getStaffRoleIds();
 
-/**
- * Resolve qual categoria usar para criar as calls
- */
-async function resolveCategory(interaction: ChatInputCommandInteraction): Promise<CategoryChannel | null> {
-  const gid = interaction.guildId!;
-  const envId = envTransmissaoId();
+      // 🔒 Verifica se o usuário é staff
+      const isStaff =
+        interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) ||
+        (member &&
+          "roles" in member &&
+          Array.from(member.roles?.cache?.values?.() ?? []).some((r: any) =>
+            staffIds.includes(r.id)
+          ));
 
-  // 1️⃣ Tenta usar TRANSMISSAO_CATEGORY_ID
-  if (envId) {
-    const c = await interaction.guild!.channels.fetch(envId).catch(() => null);
-    if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid)
-      return c as CategoryChannel;
-  }
+      if (!isStaff) {
+        await interaction.reply({
+          embeds: [err("Sem permissão", "Apenas **staff** pode usar este comando.")],
+          ephemeral: true,
+        });
+        return;
+      }
 
-  // 2️⃣ Tenta pegar da configuração DEFAULT_CATEGORY_IDS
-  const forcedId = pickDefaultCategoryIdForGuild(CONFIG.defaultCategoryIds, gid);
-  if (forcedId) {
-    const c = await interaction.guild!.channels.fetch(forcedId).catch(() => null);
-    if (c?.type === ChannelType.GuildCategory && (c as CategoryChannel).guildId === gid)
-      return c as CategoryChannel;
-  }
+      // 📂 Obtém categoria da guild
+      const categoryId = pickDefaultCategoryIdForGuild(guild.id);
+      if (!categoryId) {
+        await interaction.reply({
+          embeds: [
+            err(
+              "Nenhuma categoria configurada",
+              "Adicione no `.env`: `DEFAULT_CATEGORY_IDS=GUILD_ID:CATEGORY_ID,OUTRA_GUILD:OUTRA_CATEGORY_ID`"
+            ),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
 
-  // 3️⃣ Tenta pegar da opção do comando
-  const opt = interaction.options.getChannel('categoria');
-  if (opt?.type === ChannelType.GuildCategory && (opt as CategoryChannel).guildId === gid)
-    return opt as CategoryChannel;
+      await interaction.deferReply({ ephemeral: false });
 
-  return null;
-}
+      // 🚀 Cria as calls
+      const { team1, team2 } = await createApAltoPair({
+        client: interaction.client,
+        guildId: guild.id,
+        categoryId,
+        creatorId: interaction.user.id,
+      });
 
-/**
- * Slash Command Builder
- */
-const data = new SlashCommandBuilder()
-  .setName('apalto')
-  .setDescription('Cria duas calls privadas para ap-alto (TIME 1 e TIME 2).')
-  .addChannelOption(opt =>
-    opt
-      .setName('categoria')
-      .setDescription('Categoria onde as calls serão criadas (opcional)')
-      .addChannelTypes(ChannelType.GuildCategory)
-      .setRequired(false),
-  )
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
+      // ✅ Mensagem de sucesso
+      const embed = new EmbedBuilder()
+        .setColor(0x00ff73)
+        .setTitle("✅ Calls criadas")
+        .setDescription(
+          `Defina os **líderes** (um pra cada time).\n\n` +
+            `🔥 <#${team1.id}> TIME 1\n⚡ <#${team2.id}> TIME 2\n\n` +
+            `As calls serão **visíveis** para todos, mas só líderes/guests conectam.\n` +
+            `Líderes poderão **arrastar / mutar / ensurdecer** na própria call (após aplicar).\n` +
+            `As calls são apagadas se ficarem vazias por **${CONFIG.emptyMinutesToDelete} min**.`
+        )
+        .setFooter({ text: "Painel de permissões do /apalto" });
 
-/**
- * Execução principal do comando
- */
-async function execute(interaction: ChatInputCommandInteraction) {
-  try {
-    await interaction.deferReply({ ephemeral: true }).catch(() => {});
+      // 🔘 Botões
+      const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`apalto:pickL1:${team1.id}:${team2.id}`)
+          .setLabel("🔥 Escolher líder TIME 1")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`apalto:pickL2:${team1.id}:${team2.id}`)
+          .setLabel("⚡ Escolher líder TIME 2")
+          .setStyle(ButtonStyle.Primary)
+      );
 
-    if (!interaction.inCachedGuild()) {
-      await interaction.editReply({ embeds: [err('Use em um servidor')] }).catch(() => {});
-      return;
-    }
+      const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`apalto:finalize:${team1.id}:${team2.id}`)
+          .setLabel("Aplicar Permissões")
+          .setStyle(ButtonStyle.Success)
+      );
 
-    const category = await resolveCategory(interaction);
-    if (!category) {
+      await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+    } catch (e: any) {
+      console.error("[/apalto] erro:", e);
       await interaction.editReply({
         embeds: [
           err(
-            'Categoria inválida',
-            'Defina TRANSMISSAO_CATEGORY_ID no .env **ou** mapeie em DEFAULT_CATEGORY_IDS (GUILD_ID=CATEGORY_ID).',
+            "Erro",
+            e?.message ??
+              "Não foi possível criar as calls. Verifique permissões e IDs no .env."
           ),
         ],
-      }).catch(() => {});
-      return;
+      });
     }
-
-    const staffRoleIds = getStaffRoleIds();
-    const guestRoleId = process.env.CALL_GUEST_ROLE_ID?.trim() ?? null;
-
-    const overwrites: OverwriteResolvable[] = [
-      {
-        id: interaction.guild!.roles.everyone.id,
-        deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
-      },
-      {
-        id: interaction.user.id,
-        allow: [
-          PermissionFlagsBits.Connect,
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.Speak,
-          PermissionFlagsBits.ManageChannels,
-        ],
-      },
-      ...staffRoleIds.map((id: string) => ({
-        id,
-        allow: [
-          PermissionFlagsBits.Connect,
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.Speak,
-          PermissionFlagsBits.ManageChannels,
-          PermissionFlagsBits.MoveMembers,
-          PermissionFlagsBits.MuteMembers,
-          PermissionFlagsBits.DeafenMembers,
-        ],
-      })),
-      ...(guestRoleId
-        ? [
-            {
-              id: guestRoleId,
-              allow: [PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel],
-            },
-          ]
-        : []),
-    ];
-
-    const { team1, team2 } = await createApAltoPair({
-      client: interaction.client,
-      guildId: interaction.guildId!,
-      categoryId: category.id,
-      creatorId: interaction.user.id,
-      permissionOverwrites: overwrites, // Passando as permissões para a criação dos canais
-    });
-
-    const leader1Btn = new ButtonBuilder()
-      .setCustomId(`apalto:pickL1:${team1.id}:${team2.id}`)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel('Escolher líder TIME 1');
-
-    const leader2Btn = new ButtonBuilder()
-      .setCustomId(`apalto:pickL2:${team1.id}:${team2.id}`)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel('Escolher líder TIME 2');
-
-    const applyBtn = new ButtonBuilder()
-      .setCustomId(`apalto:finalize:${team1.id}:${team2.id}`)
-      .setStyle(ButtonStyle.Success)
-      .setLabel('Aplicar Permissões');
-
-    await interaction.editReply({
-      embeds: [
-        ok(
-          'Calls criadas ✅',
-          `Defina os **líderes** (um pra cada time):\n• ${team1}\n• ${team2}\n\n` +
-            `Líderes e cargos staff têm **gerenciamento total** (incluindo mover, mutar e ensurdecer membros).\n` +
-            (guestRoleId
-              ? `O cargo <@&${guestRoleId}> pode **apenas entrar** nas calls.\n`
-              : '') +
-            `As calls são apagadas se ficarem vazias por ${CONFIG.emptyMinutesToDelete} min.`,
-        ),
-      ],
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(leader1Btn, leader2Btn, applyBtn)],
-    });
-  } catch (e) {
-    console.error('❌ Erro ao executar /apalto:', e);
-    await interaction
-      .editReply({
-        embeds: [err('Erro interno', 'Verifique o log do servidor para mais detalhes.')],
-      })
-      .catch(() => {});
-  }
-}
-
-export const apalto = { data, execute };
-export default apalto;
+  },
+};

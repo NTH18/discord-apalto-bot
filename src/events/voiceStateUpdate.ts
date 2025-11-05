@@ -1,10 +1,10 @@
-import { Events, type VoiceState } from 'discord.js';
-import { onVoiceStateUpdate } from '../utils/voiceManager.ts';
+// src/events/voiceStateUpdate.ts
+import { Events, type VoiceState } from "discord.js";
+import { onVoiceStateUpdate } from "../utils/voiceManager.js";
 
-const mod = {
+export default {
   name: Events.VoiceStateUpdate,
   async execute(oldState: VoiceState, newState: VoiceState) {
-    onVoiceStateUpdate(oldState, newState);
-  }
+    await onVoiceStateUpdate(oldState, newState);
+  },
 };
-export default mod;

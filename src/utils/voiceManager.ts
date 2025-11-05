@@ -1,14 +1,14 @@
 // src/utils/voiceManager.ts
 import {
-  Client,
-  GuildBasedChannel,
-  VoiceChannel,
   ChannelType,
-  PermissionFlagsBits,
+  Client,
   OverwriteResolvable,
-  VoiceState,
+  PermissionFlagsBits,
+  VoiceChannel,
+  type GuildBasedChannel,
+  type VoiceState,
 } from "discord.js";
-import { CONFIG } from "../config.ts";
+import { CONFIG } from "../config.js";
 
 type PairInfo = {
   guildId: string;
@@ -22,6 +22,11 @@ type PairInfo = {
 
 const pairs = new Map<string, PairInfo>();
 const pairsByChannel = new Map<string, PairInfo>();
+const PAIR_PREFIX = "apalto";
+
+function pairKey(a: string, b: string) {
+  return `${PAIR_PREFIX}:${[a, b].sort().join(":")}`;
+}
 
 function asVoice(ch: GuildBasedChannel | null): VoiceChannel {
   if (!ch || ch.type !== ChannelType.GuildVoice)
@@ -29,42 +34,152 @@ function asVoice(ch: GuildBasedChannel | null): VoiceChannel {
   return ch as VoiceChannel;
 }
 
-/**
- * Cria as duas calls (TIME 1 e TIME 2) com permissões customizadas
- */
-export async function createApAltoPair({
-  client,
-  guildId,
-  categoryId,
-  creatorId,
-  permissionOverwrites,
-}: {
+function randomTwoEmojis(): [string, string] {
+  const pool = ["🔥", "🧯", "⚡", "🍀", "🎯", "🛡️", "🥇", "🥈"];
+  const a = Math.floor(Math.random() * pool.length);
+  let b = Math.floor(Math.random() * pool.length);
+  while (b === a) b = Math.floor(Math.random() * pool.length);
+  return [pool[a], pool[b]];
+}
+
+function parseIdList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => /^\d{17,20}$/.test(s));
+}
+
+/* ============================================================
+   🔧 CRIA AS CALLS TIME 1 / TIME 2
+============================================================ */
+export async function createApAltoPair(opts: {
   client: Client;
   guildId: string;
   categoryId: string;
   creatorId: string;
-  permissionOverwrites?: OverwriteResolvable[];
 }) {
+  const { client, guildId, categoryId, creatorId } = opts;
+
+  console.log("🔧 [apalto] createApAltoPair >", { guildId, categoryId, creatorId });
+
   const guild = await client.guilds.fetch(guildId);
-  const category = await guild.channels.fetch(categoryId);
-  if (!category || category.type !== ChannelType.GuildCategory)
-    throw new Error("Categoria inválida");
 
-  const team1 = await guild.channels.create({
-    name: "🔥 TIME 1",
-    type: ChannelType.GuildVoice,
-    parent: category.id,
-    permissionOverwrites,
-    reason: "apalto: criação TIME 1",
-  });
+  // ✅ segurança extra: garante que o canal pertence à guild
+  const category = await guild.channels.fetch(categoryId).catch(() => null);
 
-  const team2 = await guild.channels.create({
-    name: "⚡ TIME 2",
-    type: ChannelType.GuildVoice,
-    parent: category.id,
-    permissionOverwrites,
-    reason: "apalto: criação TIME 2",
-  });
+  if (!category || category.guild.id !== guild.id) {
+    throw new Error(
+      `❌ Categoria inválida ou de outra guild (recebido ${categoryId}, guild atual ${guild.id})`
+    );
+  }
+
+  if (category.type !== ChannelType.GuildCategory) {
+    throw new Error("❌ Categoria inválida: verifique DEFAULT_CATEGORY_IDS");
+  }
+
+  // 📜 IDs de staff e convidados
+  const staffRoles = parseIdList(process.env.STAFF_ROLE_IDS);
+  const guestRoles = parseIdList(process.env.CALL_GUEST_ROLE_ID);
+
+  // 🔍 Busca cargos válidos
+  const roles = await guild.roles.fetch();
+  const validRoleIds = new Set(roles.map((r) => r.id));
+  const everyoneId = guild.roles.everyone.id;
+
+  // 👑 Permissões do Staff
+  const staffAllow = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.ManageRoles,
+    PermissionFlagsBits.Connect,
+    PermissionFlagsBits.Speak,
+    PermissionFlagsBits.Stream,
+    PermissionFlagsBits.MuteMembers,
+    PermissionFlagsBits.DeafenMembers,
+    PermissionFlagsBits.MoveMembers,
+  ];
+
+  // 🙋 Permissões dos Guests
+  const guestAllow = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.Connect,
+  ];
+
+  // 👤 Permissões do criador
+  const creatorAllow = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.Connect,
+  ];
+
+  // 🌍 Permissões base para @everyone + staff + guests + criador
+  const permissionOverwrites: OverwriteResolvable[] = [
+    {
+      id: everyoneId,
+      allow: [PermissionFlagsBits.ViewChannel],
+      deny: [PermissionFlagsBits.Connect],
+    },
+
+    // 🙋 Guests
+    ...guestRoles
+      .filter((id) => validRoleIds.has(id))
+      .map((id) => ({
+        id,
+        allow: guestAllow,
+      })),
+
+    // 👑 Staffs
+    ...staffRoles
+      .filter((id) => validRoleIds.has(id))
+      .map((id) => ({
+        id,
+        allow: staffAllow,
+      })),
+
+    // 👤 Criador
+    {
+      id: creatorId,
+      allow: creatorAllow,
+    },
+  ];
+
+  console.log("📋 [apalto] Overwrites finais (verificados):");
+  for (const ow of permissionOverwrites) {
+    console.log("-", String(ow.id), validRoleIds.has(String(ow.id)) ? "✅ válido" : "❌ inválido");
+  }
+
+  const [e1, e2] = randomTwoEmojis();
+  let team1: VoiceChannel;
+  let team2: VoiceChannel;
+
+  try {
+    team1 = (await guild.channels.create({
+      name: `${e1} ・ TIME 1`,
+      type: ChannelType.GuildVoice,
+      parent: category.id,
+      permissionOverwrites,
+      reason: "apalto: criação TIME 1",
+    })) as VoiceChannel;
+
+    team2 = (await guild.channels.create({
+      name: `${e2} ・ TIME 2`,
+      type: ChannelType.GuildVoice,
+      parent: category.id,
+      permissionOverwrites,
+      reason: "apalto: criação TIME 2",
+    })) as VoiceChannel;
+  } catch (err: any) {
+    console.error("❌ [apalto] ERRO ao criar canais:", {
+      code: err?.code,
+      name: err?.name,
+      message: err?.message,
+      raw: err?.rawError ?? err,
+    });
+
+    throw new Error(
+      "❌ Falha ao criar os canais. Verifique se os IDs no .env são válidos, se os cargos existem e se o bot tem **Gerenciar Canais** na categoria."
+    );
+  }
 
   const info: PairInfo = {
     guildId,
@@ -76,7 +191,8 @@ export async function createApAltoPair({
     emptySince: null,
   };
 
-  pairs.set(`${team1.id}:${team2.id}`, info);
+  const key = pairKey(team1.id, team2.id);
+  pairs.set(key, info);
   pairsByChannel.set(team1.id, info);
   pairsByChannel.set(team2.id, info);
 
@@ -84,9 +200,9 @@ export async function createApAltoPair({
   return { team1, team2 };
 }
 
-/**
- * Dá acesso aos líderes dos times (voz, mover, mutar, etc.)
- */
+/* ============================================================
+   🔧 DÁ ACESSO AOS LÍDERES SEM REMOVER OS CARGOS EXISTENTES
+============================================================ */
 export async function grantTeamAccessForLeaders(opts: {
   client: Client;
   guildId: string;
@@ -98,67 +214,93 @@ export async function grantTeamAccessForLeaders(opts: {
   const { client, guildId, team1Id, team2Id, leader1Id, leader2Id } = opts;
 
   const guild = await client.guilds.fetch(guildId);
-  const everyoneId = guild.roles.everyone.id;
 
-  const [ch1Raw, ch2Raw] = await Promise.all([
-    guild.channels.fetch(team1Id),
-    guild.channels.fetch(team2Id),
-  ]);
+  // ✅ busca segura — evita erro se o canal pertencer a outra guild
+  const ch1Raw = await guild.channels.fetch(team1Id).catch(() => null);
+  const ch2Raw = await guild.channels.fetch(team2Id).catch(() => null);
+
+  if (!ch1Raw || !ch2Raw) {
+    console.warn(`[apalto] grantTeamAccessForLeaders: canais não encontrados ou pertencem a outra guild (${guildId})`);
+    return;
+  }
 
   const ch1 = asVoice(ch1Raw as any);
   const ch2 = asVoice(ch2Raw as any);
-
-  const baseEveryone: OverwriteResolvable = {
-    id: everyoneId,
-    allow: [PermissionFlagsBits.ViewChannel],
-    deny: [PermissionFlagsBits.Connect],
-  };
 
   const leaderAllow = [
     PermissionFlagsBits.ViewChannel,
     PermissionFlagsBits.Connect,
     PermissionFlagsBits.Speak,
+    PermissionFlagsBits.Stream,
     PermissionFlagsBits.MoveMembers,
     PermissionFlagsBits.MuteMembers,
     PermissionFlagsBits.DeafenMembers,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.ManageRoles,
   ];
 
-  const overwrites1: OverwriteResolvable[] = [
-    baseEveryone,
-    ...(leader1Id ? [{ id: leader1Id, allow: leaderAllow } as OverwriteResolvable] : []),
-  ];
+  const current1 = Array.from(ch1.permissionOverwrites.cache.values()).map((ow) => ({
+    id: ow.id,
+    allow: ow.allow.bitfield,
+    deny: ow.deny.bitfield,
+  }));
 
-  const overwrites2: OverwriteResolvable[] = [
-    baseEveryone,
-    ...(leader2Id ? [{ id: leader2Id, allow: leaderAllow } as OverwriteResolvable] : []),
-  ];
+  const current2 = Array.from(ch2.permissionOverwrites.cache.values()).map((ow) => ({
+    id: ow.id,
+    allow: ow.allow.bitfield,
+    deny: ow.deny.bitfield,
+  }));
 
-  await Promise.all([
-    ch1.permissionOverwrites.set(overwrites1),
-    ch2.permissionOverwrites.set(overwrites2),
+  if (leader1Id) {
+    const existing = current1.find((o) => o.id === leader1Id);
+    const allowBitsBigInt = leaderAllow.map((perm) => BigInt(perm)).reduce((a, b) => a | b, 0n);
+    if (existing) existing.allow |= allowBitsBigInt;
+    else current1.push({ id: leader1Id, allow: allowBitsBigInt, deny: 0n });
+  }
+
+  if (leader2Id) {
+    const existing = current2.find((o) => o.id === leader2Id);
+    const allowBitsBigInt = leaderAllow.map((perm) => BigInt(perm)).reduce((a, b) => a | b, 0n);
+    if (existing) existing.allow |= allowBitsBigInt;
+    else current2.push({ id: leader2Id, allow: allowBitsBigInt, deny: 0n });
+  }
+
+  await Promise.allSettled([
+    ch1.permissionOverwrites.set(current1 as any).catch(() => {}),
+    ch2.permissionOverwrites.set(current2 as any).catch(() => {}),
   ]);
+
+  console.log(`✅ [apalto] Líderes aplicados com sucesso em ${guild.name}`);
 }
 
-/**
- * Tempo máximo vazio antes de deletar calls
- */
+/* ============================================================
+   🧹 AUTO DELETE APÓS AMBAS VAZIAS
+============================================================ */
 const EMPTY_MS = Math.max(1, CONFIG.emptyMinutesToDelete) * 60 * 1000;
 
-/**
- * Atualiza o timer de deleção automática se ambas as calls estiverem vazias
- */
 async function refreshDeletionTimer(client: Client, info: PairInfo) {
   if (info.deleteTimer) clearTimeout(info.deleteTimer);
 
   const guild = await client.guilds.fetch(info.guildId);
-  const [c1, c2] = await Promise.all([
-    guild.channels.fetch(info.team1Id),
-    guild.channels.fetch(info.team2Id),
-  ]);
+
+  if (!client.guilds.cache.has(info.guildId)) {
+    console.warn(`[apalto] Ignorando PairInfo inválido (guild ${info.guildId} não encontrada no cache)`);
+    return;
+  }
+
+  const c1 = await guild.channels.fetch(info.team1Id).catch(() => null);
+  const c2 = await guild.channels.fetch(info.team2Id).catch(() => null);
+
+  if (!c1 || !c2) {
+    console.warn(`[apalto] Ignorando par órfão: canais não pertencem à guild ${guild.id}`);
+    pairs.delete(pairKey(info.team1Id, info.team2Id));
+    pairsByChannel.delete(info.team1Id);
+    pairsByChannel.delete(info.team2Id);
+    return;
+  }
 
   const v1 = asVoice(c1 as any);
   const v2 = asVoice(c2 as any);
-
   const bothEmpty = v1.members.size === 0 && v2.members.size === 0;
 
   if (bothEmpty) {
@@ -170,10 +312,15 @@ async function refreshDeletionTimer(client: Client, info: PairInfo) {
         await v1.fetch(true);
         await v2.fetch(true);
         if (v1.members.size === 0 && v2.members.size === 0) {
-          await Promise.allSettled([v1.delete("apalto: vazio"), v2.delete("apalto: vazio")]);
+          await Promise.allSettled([
+            v1.delete("apalto: vazio"),
+            v2.delete("apalto: vazio"),
+          ]);
         }
-      } catch {}
-      const key = `${info.team1Id}:${info.team2Id}`;
+      } catch {
+        // ignora erros de exclusão
+      }
+      const key = pairKey(info.team1Id, info.team2Id);
       pairs.delete(key);
       pairsByChannel.delete(info.team1Id);
       pairsByChannel.delete(info.team2Id);
@@ -183,9 +330,9 @@ async function refreshDeletionTimer(client: Client, info: PairInfo) {
   }
 }
 
-/**
- * Handler de evento: quando alguém entra ou sai de uma call
- */
+/* ============================================================
+   🛰️ ATUALIZAÇÃO DE ESTADO DE VOZ
+============================================================ */
 export async function onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
   const affected = new Set<string>();
   if (oldState.channelId) affected.add(oldState.channelId);

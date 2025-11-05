@@ -1,4 +1,4 @@
-// src/scripts/redeploy.ts
+// src/scripts/redeploy
 import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
 import fs from 'fs';
@@ -27,7 +27,7 @@ const rest = new REST({ version: '10' }).setToken(token);
 // 📦 Carregar comandos automaticamente de src/commands/
 // ============================================================================
 const commandsPath = path.join(process.cwd(), 'src', 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.ts') || f.endsWith('.js'));
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('') || f.endsWith('.js'));
 
 const commands: any[] = [];
 

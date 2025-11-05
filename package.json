@@ -4,16 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "npx tsx src/index.ts",
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-
-    "deploy": "npx tsx src/scripts/deploy-commands.ts",
-    "redeploy": "npx tsx src/scripts/redeploy.ts",
-    "clear": "npx tsx src/scripts/clear-guild.ts",
-    "clear-global": "npx tsx src/scripts/clear-global.ts",
-    "list": "npx tsx src/scripts/list-commands.ts",
-    "print-env": "npx tsx src/scripts/print-env.ts"
+  "start": "node dist/index.js",
+  "dev": "tsx watch src/index.ts",
+  "build": "tsc",
+  "deploy": "tsx src/scripts/deploy-commands.ts",
+  "redeploy": "tsx src/scripts/redeploy.ts",
+  "clear": "tsx src/scripts/clear-guild.ts",
+  "clear-global": "tsx src/scripts/clear-global.ts",
+  "list": "tsx src/scripts/list-commands.ts",
+  "print-env": "tsx src/scripts/print-env.ts"
   },
   "dependencies": {
     "discord.js": "^14.15.3",

@@ -4,8 +4,8 @@ import { REST, Routes } from 'discord.js';
 function usage() {
   console.log(
     'Uso:\n' +
-    '  tsx scripts/list-commands.ts              # lista globais\n' +
-    '  tsx scripts/list-commands.ts <GUILD_ID>   # lista de uma guild\n'
+    '  tsx scripts/list-commands              # lista globais\n' +
+    '  tsx scripts/list-commands <GUILD_ID>   # lista de uma guild\n'
   );
 }
 
